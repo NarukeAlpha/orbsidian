@@ -4,7 +4,7 @@ Voice-first desktop app for Obsidian with local STT/TTS and OpenCode agent sessi
 
 I had a strong vision for a while about a way to organize your thoughts while
 giving it some kind of agency with today's tools. many times do I find myself waiting for something,
-writing something, reviewing something and getting an idea for something else but the cost
+writing something, reviewing something and getting an idea for something else, but the cost
 of switching is great/distracting. 
 
 Another scenario I envisioned was for research. Learning quite literally anything is a very
@@ -15,8 +15,12 @@ The vision was of a personal assistant for notes, but actually agentic. Both Voi
 run locally, and with advancement in small parameter LLM's even the agentic portion which relies
 on opencode can be run locally on consumer hardware. I predict by July 2026 this will be capable.
 
-The idea was so strong and well defined, i decided to let codex implement it and see how far
+The idea was so strong and well-defined, I decided to let codex implement it and see how far
 it can get with the ocational nudge/redirection/correction.
+
+I mean obsidian is literally a .md wrapper, and what do modern LLM harnesses rely on? 
+You guessed it,
+Markdown. 
 
 
 Below is the 5.3 codex description of the project, not written manually. 
