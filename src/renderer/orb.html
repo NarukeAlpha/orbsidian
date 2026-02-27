@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orbidian Orb</title>
+    <link rel="stylesheet" href="./orb.css" />
+  </head>
+  <body>
+    <main class="orb-shell">
+      <button id="orbButton" class="orb state-idle" title="Click to cancel current transaction"></button>
+      <div id="statusText" class="status">Idle</div>
+      <div id="queueText" class="queue">Queue: 0</div>
+      <div class="actions">
+        <button id="cancelButton" class="action danger">Cancel</button>
+        <button id="activityButton" class="action">Activity</button>
+      </div>
+    </main>
+
+    <script type="module" src="./orb.js"></script>
+  </body>
+</html>

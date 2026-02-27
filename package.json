@@ -1,0 +1,56 @@
+{
+  "name": "obsidian-agentic",
+  "version": "0.1.0",
+  "description": "Voice-first Obsidian desktop assistant with OpenCode agent sessions",
+  "main": "dist/main/main.js",
+  "private": true,
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "npm run clean && tsc -p tsconfig.main.json && tsc -p tsconfig.renderer.json && node scripts/copy-assets.mjs",
+    "start": "npm run build && electron .",
+    "config": "npm run build && electron . config",
+    "dev": "npm run build && electron .",
+    "dist": "npm run build && electron-builder",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@opencode-ai/sdk": "^0.4.0",
+    "electron-store": "^9.0.0",
+    "sql.js": "^1.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.8.3"
+  },
+  "build": {
+    "appId": "com.orbidian.desktop",
+    "productName": "Orbidian",
+    "executableName": "orbidian",
+    "files": [
+      "dist/**/*",
+      "runtime/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "dist/main/main.js"
+    },
+    "asarUnpack": [
+      "**/sql-wasm.wasm",
+      "runtime/**/*"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  }
+}

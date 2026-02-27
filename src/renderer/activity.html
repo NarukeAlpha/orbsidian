@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orbidian Activity</title>
+    <link rel="stylesheet" href="./activity.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <h1>Activity Log</h1>
+        <button id="refreshButton" type="button">Refresh</button>
+      </header>
+
+      <section class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Level</th>
+              <th>Type</th>
+              <th>Message</th>
+            </tr>
+          </thead>
+          <tbody id="eventRows"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script type="module" src="./activity.js"></script>
+  </body>
+</html>

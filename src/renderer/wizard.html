@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orbidian Setup</title>
+    <link rel="stylesheet" href="./wizard.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header class="header">
+        <h1>Orbidian First-Run Setup</h1>
+        <p>Configure vault, local voice models, hotkeys, and OpenCode connectivity.</p>
+      </header>
+
+      <section class="card">
+        <h2>1) Vault and CLI</h2>
+        <label>
+          Vault path
+          <div class="row">
+            <input id="vaultPath" type="text" placeholder="/path/to/obsidian/vault" />
+            <button id="browseVault" type="button">Browse</button>
+          </div>
+        </label>
+
+        <label>
+          Obsidian CLI command
+          <div class="row">
+            <input id="obsidianCliPath" type="text" placeholder="obsidian" />
+            <button id="testObsidian" type="button">Test</button>
+          </div>
+          <div id="obsidianTestMessage" class="inline-message"></div>
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>2) Local STT / TTS</h2>
+
+        <div class="auto-setup-row">
+          <button id="autoSetupRuntime" class="primary" type="button">Auto Setup Voice Runtime</button>
+          <span class="hint">Builds whisper.cpp, creates Python venv, installs Qwen TTS deps, and downloads models.</span>
+        </div>
+        <div id="runtimeMessage" class="inline-message"></div>
+
+        <label>
+          whisper.cpp binary
+          <div class="row">
+            <input id="whisperBinaryPath" type="text" placeholder="whisper-cli" />
+            <button id="testWhisper" type="button">Test</button>
+          </div>
+          <div id="whisperTestMessage" class="inline-message"></div>
+        </label>
+
+        <label>
+          whisper.cpp model path
+          <div class="row">
+            <input id="whisperModelPath" type="text" placeholder=".../ggml-base.en.bin" />
+            <button id="downloadWhisper" type="button">Auto-download</button>
+          </div>
+        </label>
+
+        <label>
+          Python executable for Qwen TTS
+          <input id="pythonPath" type="text" placeholder="python" />
+        </label>
+
+        <label>
+          Qwen model directory
+          <div class="row">
+            <input id="qwenModelPath" type="text" placeholder=".../Qwen3-TTS-12Hz-1.7B-CustomVoice" />
+            <button id="downloadQwen" type="button">Auto-download</button>
+          </div>
+        </label>
+
+        <div class="row two-col">
+          <label>
+            Speaker
+            <input id="ttsSpeaker" type="text" placeholder="Chelsie" />
+          </label>
+          <label>
+            Language
+            <input id="ttsLanguage" type="text" placeholder="English" />
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>3) Hotkeys</h2>
+        <div class="row three-col">
+          <label>
+            Listen toggle
+            <input id="hotkeyListen" type="text" />
+          </label>
+          <label>
+            TTS skip chunk
+            <input id="hotkeySkip" type="text" />
+          </label>
+          <label>
+            TTS interrupt
+            <input id="hotkeyInterrupt" type="text" />
+          </label>
+        </div>
+
+        <div class="row two-col">
+          <label class="checkbox">
+            <input id="ttsAck" type="checkbox" />
+            Speak acknowledgements
+          </label>
+          <label class="checkbox">
+            <input id="ttsDone" type="checkbox" />
+            Speak completion
+          </label>
+          <label class="checkbox">
+            <input id="ttsReadback" type="checkbox" />
+            Speak note readback
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>4) OpenCode</h2>
+        <label>
+          Base URL
+          <input id="opencodeBaseUrl" type="text" placeholder="http://127.0.0.1:4096" />
+        </label>
+
+        <div class="row two-col">
+          <label>
+            Username (optional)
+            <input id="opencodeUser" type="text" placeholder="opencode" />
+          </label>
+          <label>
+            Password (optional)
+            <input id="opencodePass" type="password" />
+          </label>
+        </div>
+
+        <label>
+          Agent
+          <input id="opencodeAgent" type="text" placeholder="build" />
+        </label>
+
+        <button id="verifyOpenCode" type="button">Verify OpenCode</button>
+        <div id="opencodeMessage" class="inline-message"></div>
+      </section>
+
+      <section class="card footer">
+        <div class="footer-left">
+          <div id="status" class="status">Ready.</div>
+          <div id="saveMessage" class="inline-message"></div>
+        </div>
+        <button id="saveConfig" class="save" type="button">Save and Start</button>
+      </section>
+    </main>
+
+    <script type="module" src="./wizard.js"></script>
+  </body>
+</html>
