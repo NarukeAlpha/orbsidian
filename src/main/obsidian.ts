@@ -1,7 +1,8 @@
-import { shell } from "electron";
+import { app, shell } from "electron";
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { execCommand, normalizeNotePath } from "./utils";
+import { formatWhisperSpawnError, resolveWhisperBinaryPath } from "./whisper-path";
 
 export interface CommandProbeResult {
   ok: boolean;
@@ -27,8 +28,10 @@ export async function probeObsidianCli(binaryPath: string): Promise<CommandProbe
 }
 
 export async function probeWhisperCli(binaryPath: string): Promise<CommandProbeResult> {
+  const resolvedBinaryPath = await resolveWhisperBinaryPath(binaryPath, app.getPath("userData"));
+
   try {
-    const result = await execCommand(binaryPath, ["-h"], { timeoutMs: 15000 });
+    const result = await execCommand(resolvedBinaryPath, ["-h"], { timeoutMs: 15000 });
     return {
       ok: result.code === 0,
       stdout: result.stdout,
@@ -38,7 +41,7 @@ export async function probeWhisperCli(binaryPath: string): Promise<CommandProbeR
     return {
       ok: false,
       stdout: "",
-      stderr: error instanceof Error ? error.message : String(error)
+      stderr: formatWhisperSpawnError(resolvedBinaryPath || binaryPath, error)
     };
   }
 }

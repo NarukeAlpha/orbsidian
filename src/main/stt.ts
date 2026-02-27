@@ -2,8 +2,10 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { app } from "electron";
 import { AppConfig } from "./types";
 import { randomId } from "./utils";
+import { formatWhisperSpawnError, resolveWhisperBinaryPath } from "./whisper-path";
 
 export interface TranscriptionResult {
   text: string;
@@ -72,6 +74,8 @@ export class WhisperService {
   }): Promise<{ code: number; stdout: string; stderr: string; usedGpu: boolean }> {
     await rm(params.outputTxt, { force: true });
 
+    const binaryPath = await resolveWhisperBinaryPath(this.config.stt.binaryPath, app.getPath("userData"));
+
     const args = ["-m", this.config.stt.modelPath, "-f", params.inputPath, "-otxt", "-of", params.outputBase, "-np"];
 
     if (this.config.stt.language && this.config.stt.language !== "auto") {
@@ -87,7 +91,7 @@ export class WhisperService {
     }
 
     return await new Promise((resolve, reject) => {
-      const child = spawn(this.config.stt.binaryPath, args, {
+      const child = spawn(binaryPath, args, {
         windowsHide: true,
         shell: false
       });
@@ -106,7 +110,7 @@ export class WhisperService {
 
       child.on("error", (error) => {
         this.currentChild = null;
-        reject(error);
+        reject(new Error(formatWhisperSpawnError(binaryPath || this.config.stt.binaryPath, error)));
       });
 
       child.on("close", (code) => {

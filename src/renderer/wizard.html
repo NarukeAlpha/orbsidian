@@ -140,8 +140,16 @@
           <input id="opencodeAgent" type="text" placeholder="build" />
         </label>
 
+        <label>
+          Model
+          <select id="opencodeModelSelect">
+            <option value="">Auto (server default)</option>
+          </select>
+        </label>
+
         <button id="verifyOpenCode" type="button">Verify OpenCode</button>
         <div id="opencodeMessage" class="inline-message"></div>
+        <div id="opencodeModelMessage" class="inline-message"></div>
       </section>
 
       <section class="card footer">

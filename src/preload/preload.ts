@@ -29,7 +29,7 @@ const api = {
     probeWhisperCli: (binaryPath: string) => ipcRenderer.invoke("wizard:probe-whisper-cli", binaryPath),
     autoSetupRuntime: () => ipcRenderer.invoke("wizard:auto-setup-runtime"),
     downloadWhisperModel: () => ipcRenderer.invoke("wizard:download-whisper"),
-    downloadQwenModel: () => ipcRenderer.invoke("wizard:download-qwen"),
+    downloadQwenModel: (payload?: { pythonPath?: string }) => ipcRenderer.invoke("wizard:download-qwen", payload),
     verifyOpenCode: (payload: { baseUrl: string; username: string; password: string }) =>
       ipcRenderer.invoke("wizard:verify-opencode", payload),
     saveConfig: (config: unknown) => ipcRenderer.invoke("wizard:save-config", config),

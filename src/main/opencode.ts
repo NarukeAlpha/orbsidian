@@ -1,5 +1,12 @@
 import { AppConfig, AgentEnvelope, PromptResult } from "./types";
 
+export interface OpenCodeModelOption {
+  id: string;
+  providerId: string;
+  modelId: string;
+  label: string;
+}
+
 const RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -190,7 +197,8 @@ export class OpenCodeService {
     const baseUrl = this.config.opencode.baseUrl;
 
     if (this.config.opencode.username || this.config.opencode.password) {
-      const auth = Buffer.from(`${this.config.opencode.username}:${this.config.opencode.password}`).toString("base64");
+      const username = this.config.opencode.username || "opencode";
+      const auth = Buffer.from(`${username}:${this.config.opencode.password}`).toString("base64");
       this.client = sdk.createOpencodeClient({
         baseUrl,
         fetch: (input: RequestInfo | URL, init?: RequestInit) =>
@@ -206,6 +214,79 @@ export class OpenCodeService {
     }
 
     this.client = sdk.createOpencodeClient({ baseUrl });
+  }
+
+  async listAvailableModels(): Promise<{ ok: boolean; models: OpenCodeModelOption[]; defaultModel?: string; error?: string }> {
+    try {
+      if (!this.client) {
+        await this.connect();
+      }
+
+      const response = await this.client.config.providers();
+      const data = response?.data ?? response;
+      const providers = Array.isArray(data?.providers) ? data.providers : [];
+      const defaults = data?.default ?? {};
+
+      const options: OpenCodeModelOption[] = [];
+      for (const provider of providers) {
+        const providerId = String(provider?.id ?? "").trim();
+        if (!providerId) {
+          continue;
+        }
+
+        const providerName = String(provider?.name ?? providerId).trim();
+        const modelsMap = provider?.models ?? {};
+        for (const [modelIdRaw, modelInfo] of Object.entries(modelsMap)) {
+          const modelId = String(modelIdRaw).trim();
+          if (!modelId) {
+            continue;
+          }
+
+          const displayName = String((modelInfo as any)?.name ?? modelId).trim();
+          options.push({
+            id: `${providerId}/${modelId}`,
+            providerId,
+            modelId,
+            label: `${providerName} / ${displayName}`
+          });
+        }
+      }
+
+      options.sort((a, b) => a.label.localeCompare(b.label));
+
+      let defaultModel: string | undefined;
+      if (typeof defaults?.model === "string" && defaults.model.includes("/")) {
+        defaultModel = defaults.model;
+      }
+
+      if (!defaultModel) {
+        for (const [key, value] of Object.entries(defaults as Record<string, unknown>)) {
+          if (typeof value !== "string") {
+            continue;
+          }
+          if (value.includes("/")) {
+            defaultModel = value;
+            break;
+          }
+          if (providers.some((provider: any) => provider?.id === key)) {
+            defaultModel = `${key}/${value}`;
+            break;
+          }
+        }
+      }
+
+      return {
+        ok: true,
+        models: options,
+        defaultModel
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        models: [],
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 
   async healthCheck(): Promise<{ ok: boolean; version?: string; error?: string }> {
@@ -320,7 +401,7 @@ export class OpenCodeService {
     followupInstruction?: string;
   }): string {
     const lines: string[] = [
-      "You are an Obsidian voice workflow operator.",
+      "You are an Personal Assistant with Obsidian vault access.",
       "Runtime constraints:",
       "- Obsidian app is installed and running with CLI enabled.",
       "- You may execute commands directly.",

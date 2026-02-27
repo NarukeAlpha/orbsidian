@@ -20,12 +20,24 @@ type WizardApi = {
       error?: string;
     }>;
     downloadWhisperModel: () => Promise<{ ok: boolean; modelPath: string }>;
-    downloadQwenModel: () => Promise<{ ok: boolean; modelPath: string }>;
+    downloadQwenModel: (payload?: { pythonPath?: string }) => Promise<{ ok: boolean; modelPath: string }>;
     verifyOpenCode: (payload: {
       baseUrl: string;
       username: string;
       password: string;
-    }) => Promise<{ ok: boolean; version?: string; error?: string }>;
+    }) => Promise<{
+      ok: boolean;
+      version?: string;
+      error?: string;
+      models?: Array<{
+        id: string;
+        providerId: string;
+        modelId: string;
+        label: string;
+      }>;
+      defaultModel?: string;
+      modelListError?: string;
+    }>;
     saveConfig: (config: any) => Promise<{ ok: boolean; errors: string[] }>;
     onDownloadProgress: (
       listener: (payload: {
@@ -67,11 +79,13 @@ const elements = {
   opencodeUser: document.getElementById("opencodeUser") as HTMLInputElement,
   opencodePass: document.getElementById("opencodePass") as HTMLInputElement,
   opencodeAgent: document.getElementById("opencodeAgent") as HTMLInputElement,
+  opencodeModelSelect: document.getElementById("opencodeModelSelect") as HTMLSelectElement,
   status: document.getElementById("status") as HTMLDivElement,
   obsidianTestMessage: document.getElementById("obsidianTestMessage") as HTMLDivElement,
   whisperTestMessage: document.getElementById("whisperTestMessage") as HTMLDivElement,
   runtimeMessage: document.getElementById("runtimeMessage") as HTMLDivElement,
   opencodeMessage: document.getElementById("opencodeMessage") as HTMLDivElement,
+  opencodeModelMessage: document.getElementById("opencodeModelMessage") as HTMLDivElement,
   saveMessage: document.getElementById("saveMessage") as HTMLDivElement,
   browseVault: document.getElementById("browseVault") as HTMLButtonElement,
   testObsidian: document.getElementById("testObsidian") as HTMLButtonElement,
@@ -86,6 +100,7 @@ const autoSetupRuntimeButton = document.getElementById("autoSetupRuntime") as HT
 
 let runtimeReady = false;
 let opencodeReady = false;
+let preferredModelFromConfig = "";
 
 function setStatus(message: string): void {
   elements.status.textContent = message;
@@ -135,13 +150,51 @@ function applyDefaults(defaults: any, runtimeScriptPath: string): void {
   elements.opencodeUser.value = defaults.opencode.username || "";
   elements.opencodePass.value = defaults.opencode.password || "";
   elements.opencodeAgent.value = defaults.opencode.agent || "build";
+  const providerId = defaults.opencode.providerId || "";
+  const modelId = defaults.opencode.modelId || "";
+  preferredModelFromConfig = providerId && modelId ? `${providerId}/${modelId}` : "";
+  elements.opencodeModelSelect.innerHTML = "";
+  elements.opencodeModelSelect.append(new Option("Auto (server default)", ""));
+  elements.opencodeModelSelect.value = "";
 
   if (!elements.qwenModelPath.value) {
     elements.qwenModelPath.placeholder = `${runtimeScriptPath.replace(/qwen_tts\.py$/, "")}/...`;
   }
 }
 
+function populateOpenCodeModels(
+  models: Array<{ id: string; providerId: string; modelId: string; label: string }>,
+  defaultModel?: string
+): void {
+  const previous = elements.opencodeModelSelect.value;
+  const preferred = previous || preferredModelFromConfig || defaultModel || "";
+
+  elements.opencodeModelSelect.innerHTML = "";
+  elements.opencodeModelSelect.append(new Option("Auto (server default)", ""));
+
+  for (const model of models) {
+    elements.opencodeModelSelect.append(new Option(model.label, model.id));
+  }
+
+  if (preferred && models.some((model) => model.id === preferred)) {
+    elements.opencodeModelSelect.value = preferred;
+  } else if (defaultModel && models.some((model) => model.id === defaultModel)) {
+    elements.opencodeModelSelect.value = defaultModel;
+  } else {
+    elements.opencodeModelSelect.value = "";
+  }
+}
+
 function buildConfig(runtimeScriptPath: string): any {
+  const selectedModel = elements.opencodeModelSelect.value.trim();
+  let providerId = "";
+  let modelId = "";
+  const slashIndex = selectedModel.indexOf("/");
+  if (slashIndex > 0) {
+    providerId = selectedModel.slice(0, slashIndex);
+    modelId = selectedModel.slice(slashIndex + 1);
+  }
+
   return {
     version: 1,
     vaultPath: elements.vaultPath.value.trim(),
@@ -176,8 +229,8 @@ function buildConfig(runtimeScriptPath: string): any {
       username: elements.opencodeUser.value.trim(),
       password: elements.opencodePass.value,
       agent: elements.opencodeAgent.value.trim() || "build",
-      providerId: "",
-      modelId: "",
+      providerId,
+      modelId,
       requestTimeoutMs: 180000
     },
     fallbackFileOpsEnabled: true,
@@ -263,6 +316,44 @@ async function init(): Promise<void> {
 
   void runAutoSetup();
 
+  const verifyOpenCodeAndLoadModels = async (): Promise<boolean> => {
+    const result = await appApi.wizard.verifyOpenCode({
+      baseUrl: elements.opencodeBaseUrl.value.trim(),
+      username: elements.opencodeUser.value.trim(),
+      password: elements.opencodePass.value
+    });
+
+    if (!result.ok) {
+      opencodeReady = false;
+      setInlineMessage(elements.opencodeMessage, result.error ?? "Unknown error", "error");
+      setInlineMessage(elements.opencodeModelMessage, "", "default");
+      setStatus("OpenCode verification failed.");
+      return false;
+    }
+
+    opencodeReady = true;
+    setInlineMessage(elements.opencodeMessage, `Connected. Version: ${result.version ?? "unknown"}`, "success");
+    setStatus(`OpenCode connected. Version: ${result.version ?? "unknown"}`);
+
+    const models = result.models ?? [];
+    populateOpenCodeModels(models, result.defaultModel);
+
+    if (models.length > 0) {
+      const selected = elements.opencodeModelSelect.value || result.defaultModel || "auto";
+      setInlineMessage(elements.opencodeModelMessage, `Loaded ${models.length} models. Selected: ${selected}`, "success");
+    } else if (result.modelListError) {
+      setInlineMessage(elements.opencodeModelMessage, result.modelListError, "error");
+    } else {
+      setInlineMessage(
+        elements.opencodeModelMessage,
+        "No models reported by server. Agent calls will use server default model.",
+        "default"
+      );
+    }
+
+    return true;
+  };
+
   elements.browseVault.addEventListener("click", async () => {
     const result = await appApi.wizard.chooseDirectory();
     if (!result.canceled) {
@@ -338,7 +429,9 @@ async function init(): Promise<void> {
   elements.downloadQwen.addEventListener("click", async () => {
     setStatus("Downloading Qwen model (this can be very large)...");
     try {
-      const result = await appApi.wizard.downloadQwenModel();
+      const result = await appApi.wizard.downloadQwenModel({
+        pythonPath: elements.pythonPath.value.trim() || "python"
+      });
       elements.qwenModelPath.value = result.modelPath;
       setStatus(`Qwen model downloaded: ${result.modelPath}`);
     } catch (error) {
@@ -351,25 +444,13 @@ async function init(): Promise<void> {
     setStatus("Verifying OpenCode...");
     opencodeReady = false;
     setInlineMessage(elements.opencodeMessage, "", "default");
+    setInlineMessage(elements.opencodeModelMessage, "", "default");
     setInlineMessage(elements.saveMessage, "", "default");
     elements.verifyOpenCode.disabled = true;
     const previousLabel = elements.verifyOpenCode.textContent ?? "Verify OpenCode";
     elements.verifyOpenCode.textContent = "Verifying...";
     try {
-      const result = await appApi.wizard.verifyOpenCode({
-        baseUrl: elements.opencodeBaseUrl.value.trim(),
-        username: elements.opencodeUser.value.trim(),
-        password: elements.opencodePass.value
-      });
-      if (result.ok) {
-        opencodeReady = true;
-        setInlineMessage(elements.opencodeMessage, `Connected. Version: ${result.version ?? "unknown"}`, "success");
-        setStatus(`OpenCode connected. Version: ${result.version ?? "unknown"}`);
-        return;
-      }
-      opencodeReady = false;
-      setInlineMessage(elements.opencodeMessage, result.error ?? "Unknown error", "error");
-      setStatus("OpenCode verification failed.");
+      await verifyOpenCodeAndLoadModels();
     } catch (error) {
       opencodeReady = false;
       setInlineMessage(elements.opencodeMessage, error instanceof Error ? error.message : String(error), "error");
@@ -391,19 +472,12 @@ async function init(): Promise<void> {
 
     if (!opencodeReady) {
       setStatus("Verifying OpenCode before save...");
-      const verifyResult = await appApi.wizard.verifyOpenCode({
-        baseUrl: elements.opencodeBaseUrl.value.trim(),
-        username: elements.opencodeUser.value.trim(),
-        password: elements.opencodePass.value
-      });
-      if (!verifyResult.ok) {
-        setInlineMessage(elements.opencodeMessage, verifyResult.error ?? "Unknown error", "error");
+      const verified = await verifyOpenCodeAndLoadModels();
+      if (!verified) {
         setInlineMessage(elements.saveMessage, "OpenCode verification failed.", "error");
         setStatus("Cannot save yet.");
         return;
       }
-      opencodeReady = true;
-      setInlineMessage(elements.opencodeMessage, `Connected. Version: ${verifyResult.version ?? "unknown"}`, "success");
     }
 
     const cfg = buildConfig(defaultsPayload.runtimeScriptPath);

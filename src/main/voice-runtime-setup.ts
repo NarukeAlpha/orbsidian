@@ -1,4 +1,4 @@
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { downloadQwenCustomVoiceModel, downloadWhisperBaseModel, DownloadProgress } from "./model-download";
 import { execCommand } from "./utils";
@@ -74,7 +74,9 @@ export async function autoSetupVoiceRuntime(params: {
     stage: "qwen_model",
     message: "Ensuring Qwen CustomVoice model is available"
   });
-  const qwenModelPath = await downloadQwenCustomVoiceModel(params.modelsRoot, params.onDownloadProgress);
+  const qwenModelPath = await downloadQwenCustomVoiceModel(params.modelsRoot, params.onDownloadProgress, {
+    pythonPath: venvPythonPath
+  });
 
   return {
     whisperBinaryPath,
@@ -210,10 +212,14 @@ async function ensureWhisperCli(params: {
   const baseConfigureArgs = ["-S", repoDir, "-B", buildDir, "-DCMAKE_BUILD_TYPE=Release"];
 
   const preferredConfigureArgs = [...baseConfigureArgs];
+  const fallbackConfigureArgs = [...baseConfigureArgs];
+
   if (process.platform === "win32") {
     preferredConfigureArgs.push("-DGGML_CUDA=ON");
+    fallbackConfigureArgs.push("-DGGML_CUDA=OFF");
   } else if (process.platform === "darwin") {
     preferredConfigureArgs.push("-DGGML_METAL=ON");
+    fallbackConfigureArgs.push("-DGGML_METAL=OFF");
   }
 
   const doBuild = async (configureArgs: string[]): Promise<void> => {
@@ -237,12 +243,24 @@ async function ensureWhisperCli(params: {
 
   try {
     await doBuild(preferredConfigureArgs);
-  } catch {
+  } catch (gpuError) {
     params.onProgress?.({
       stage: "whisper_build",
       message: "GPU build failed, retrying CPU-only build"
     });
-    await doBuild(baseConfigureArgs);
+
+    await rm(buildDir, { recursive: true, force: true });
+
+    try {
+      await doBuild(fallbackConfigureArgs);
+    } catch (cpuError) {
+      const gpuMessage = gpuError instanceof Error ? gpuError.message : String(gpuError);
+      const cpuMessage = cpuError instanceof Error ? cpuError.message : String(cpuError);
+      throw new SetupError(
+        "whisper_build",
+        `GPU build failed: ${gpuMessage}\nCPU fallback failed: ${cpuMessage}`
+      );
+    }
   }
 
   for (const candidate of binaryCandidates) {

@@ -335,11 +335,36 @@ function setupIpcHandlers(): void {
     return { ok: true, modelPath: output };
   });
 
-  ipcMain.handle("wizard:download-qwen", async () => {
-    const output = await downloadQwenCustomVoiceModel(getModelsPath(), (progress) => {
-      wizardWindow?.webContents.send("wizard:download-progress", progress);
-    });
+  ipcMain.handle("wizard:download-qwen", async (_event, payload?: { pythonPath?: string }) => {
+    const output = await downloadQwenCustomVoiceModel(
+      getModelsPath(),
+      (progress) => {
+        wizardWindow?.webContents.send("wizard:download-progress", progress);
+      },
+      {
+        pythonPath: payload?.pythonPath
+      }
+    );
     return { ok: true, modelPath: output };
+  });
+
+  ipcMain.handle("wizard:list-opencode-models", async (_event, payload: { baseUrl: string; username: string; password: string }) => {
+    try {
+      const current = getDefaultConfig();
+      current.opencode.baseUrl = payload.baseUrl;
+      current.opencode.username = payload.username ?? "";
+      current.opencode.password = payload.password ?? "";
+      const service = new OpenCodeService(current);
+      await service.connect();
+      const models = await service.listAvailableModels();
+      return models;
+    } catch (error) {
+      return {
+        ok: false,
+        models: [],
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
   });
 
   ipcMain.handle(
@@ -352,7 +377,22 @@ function setupIpcHandlers(): void {
         current.opencode.password = payload.password ?? "";
         const service = new OpenCodeService(current);
         await service.connect();
-        return await service.healthCheck();
+        const health = await service.healthCheck();
+        if (!health.ok) {
+          return {
+            ok: false,
+            error: health.error ?? "OpenCode health check failed"
+          };
+        }
+
+        const modelsResult = await service.listAvailableModels();
+        return {
+          ok: true,
+          version: health.version,
+          models: modelsResult.models,
+          defaultModel: modelsResult.defaultModel,
+          modelListError: modelsResult.ok ? undefined : modelsResult.error
+        };
       } catch (error) {
         return {
           ok: false,
