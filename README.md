@@ -1,4 +1,4 @@
-# Orbidian (v1)
+# Orbsidian (v1)
 
 Voice-first desktop app for Obsidian with local STT/TTS and OpenCode agent sessions.
 
@@ -69,7 +69,7 @@ npm run config
 Packaged app command-line reopen:
 
 ```bash
-orbidian config
+orbsidian config
 ```
 
 On first run, complete the setup wizard:

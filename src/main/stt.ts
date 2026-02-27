@@ -28,7 +28,7 @@ export class WhisperService {
   }
 
   async transcribeBase64Wav(audioBase64: string): Promise<TranscriptionResult> {
-    const tempDir = path.join(os.tmpdir(), "orbidian-stt");
+    const tempDir = path.join(os.tmpdir(), "orbsidian-stt");
     await mkdir(tempDir, { recursive: true });
 
     const fileId = randomId("stt");

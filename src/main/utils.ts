@@ -93,7 +93,7 @@ async function downloadFileInternal(
       url,
       {
         headers: {
-          "User-Agent": "orbidian/0.1"
+          "User-Agent": "orbsidian/0.1"
         }
       },
       (response) => {

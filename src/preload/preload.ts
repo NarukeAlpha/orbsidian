@@ -88,4 +88,4 @@ const api = {
   }
 };
 
-contextBridge.exposeInMainWorld("orbidian", api);
+contextBridge.exposeInMainWorld("orbsidian", api);

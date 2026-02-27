@@ -10,6 +10,9 @@
     "start": "npm run build && electron .",
     "config": "npm run build && electron . config",
     "dev": "npm run build && electron .",
+    "test:config-page": "npm run build && playwright test -c Test/playwright.config.ts",
+    "test:config-page:headed": "npm run build && playwright test -c Test/playwright.config.ts --headed",
+    "test:config-page:install": "playwright install chromium",
     "dist": "npm run build && electron-builder",
     "postinstall": "electron-builder install-app-deps"
   },
@@ -19,16 +22,18 @@
     "sql.js": "^1.13.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/node": "^22.10.2",
     "electron": "^37.2.0",
     "electron-builder": "^26.0.12",
+    "playwright": "^1.58.2",
     "rimraf": "^6.0.1",
     "typescript": "^5.8.3"
   },
   "build": {
-    "appId": "com.orbidian.desktop",
-    "productName": "Orbidian",
-    "executableName": "orbidian",
+    "appId": "com.orbsidian.desktop",
+    "productName": "Orbsidian",
+    "executableName": "orbsidian",
     "files": [
       "dist/**/*",
       "runtime/**/*",

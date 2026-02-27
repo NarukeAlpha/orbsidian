@@ -21,7 +21,7 @@ export class AppDatabase {
   private persistPromise: Promise<void> = Promise.resolve();
 
   constructor(dataDir: string) {
-    this.dbFilePath = path.join(dataDir, "orbidian.sqlite");
+    this.dbFilePath = path.join(dataDir, "orbsidian.sqlite");
   }
 
   async init(): Promise<void> {

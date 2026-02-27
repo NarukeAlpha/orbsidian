@@ -58,7 +58,7 @@ type WizardApi = {
   };
 };
 
-const appApi = (window as any).orbidian as WizardApi;
+const appApi = (window as any).orbsidian as WizardApi;
 
 const elements = {
   vaultPath: document.getElementById("vaultPath") as HTMLInputElement,

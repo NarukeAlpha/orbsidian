@@ -13,3 +13,5 @@ tmp/
 .DS_Store
 /.researchMD
 /.idea
+Test/playwright-report/
+Test/test-results/

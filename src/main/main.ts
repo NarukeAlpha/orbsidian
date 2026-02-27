@@ -77,7 +77,7 @@ function createOrbWindow(): BrowserWindow {
     fullscreenable: false,
     hasShadow: false,
     skipTaskbar: true,
-    title: "Orbidian",
+    title: "Orbsidian",
     backgroundColor: "#00000000"
   });
   void window.loadFile(rendererPath("orb.html"));
@@ -92,7 +92,7 @@ function createWizardWindow(): BrowserWindow {
     width: 980,
     height: 760,
     frame: true,
-    title: "Orbidian Setup",
+    title: "Orbsidian Setup",
     resizable: true,
     minimizable: true,
     maximizable: true,
@@ -118,7 +118,7 @@ function createActivityWindow(): BrowserWindow {
     width: 960,
     height: 680,
     frame: true,
-    title: "Orbidian Activity",
+    title: "Orbsidian Activity",
     show: false,
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#121416" : "#f5f7fb"
   });

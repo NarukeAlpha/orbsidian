@@ -18,7 +18,7 @@ type ActivityApi = {
   };
 };
 
-const appApi = (window as any).orbidian as ActivityApi;
+const appApi = (window as any).orbsidian as ActivityApi;
 
 const refreshButton = document.getElementById("refreshButton") as HTMLButtonElement;
 const rows = document.getElementById("eventRows") as HTMLTableSectionElement;

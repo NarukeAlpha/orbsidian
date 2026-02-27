@@ -121,7 +121,7 @@ export class TtsService {
   }
 
   private async generateChunkAudio(text: string): Promise<string> {
-    const tempDir = path.join(os.tmpdir(), "orbidian-tts");
+    const tempDir = path.join(os.tmpdir(), "orbsidian-tts");
     await mkdir(tempDir, { recursive: true });
     const outputPath = path.join(tempDir, `${randomId("tts")}.wav`);
 

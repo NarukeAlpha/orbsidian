@@ -22,7 +22,7 @@ type OrbApi = {
   };
 };
 
-const appApi = (window as any).orbidian as OrbApi;
+const appApi = (window as any).orbsidian as OrbApi;
 
 class MicRecorder {
   private stream: MediaStream | null = null;
