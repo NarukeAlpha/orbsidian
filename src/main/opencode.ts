@@ -187,6 +187,7 @@ export class OpenCodeService {
   private config: AppConfig;
   private client: any;
   private currentAbortController: AbortController | null = null;
+  private legacyModelOverride: { providerID: string; modelID: string } | null = null;
 
   constructor(config: AppConfig) {
     this.config = config;
@@ -222,15 +223,58 @@ export class OpenCodeService {
         await this.connect();
       }
 
-      const response = await this.client.config.providers();
-      const data = response?.data ?? response;
-      const providers = Array.isArray(data?.providers) ? data.providers : [];
-      const defaults = data?.default ?? {};
+      let providersPayload: any;
+
+      const providersResponse = await this.callSdkMethod<any>((this.client as any).config, "providers", {
+        throwOnError: true
+      });
+
+      if (providersResponse.ok) {
+        providersPayload = providersResponse.data;
+      } else {
+        const rawProvidersResponse = await this.callRawClient<any>("get", {
+          url: "/config/providers"
+        });
+
+        if (!rawProvidersResponse.ok) {
+          const combinedError = this.joinErrors(
+            providersResponse.missing ? undefined : providersResponse.error,
+            rawProvidersResponse.error
+          );
+          return {
+            ok: false,
+            models: [],
+            error: this.decorateConnectionError(combinedError)
+          };
+        }
+
+        providersPayload = rawProvidersResponse.data;
+      }
+
+      const providers = Array.isArray(providersPayload?.providers)
+        ? providersPayload.providers
+        : Array.isArray(providersPayload?.all)
+          ? providersPayload.all
+          : [];
+      const connectedFromPayload = Array.isArray(providersPayload?.connected)
+        ? new Set(providersPayload.connected.map((id: unknown) => String(id)))
+        : null;
+      const providerState = await this.callRawClient<any>("get", {
+        url: "/provider"
+      });
+      const connectedProviders = providerState.ok && Array.isArray(providerState.data?.connected)
+        ? new Set(providerState.data.connected.map((id: unknown) => String(id)))
+        : connectedFromPayload;
+      const defaults = providersPayload?.default ?? {};
 
       const options: OpenCodeModelOption[] = [];
       for (const provider of providers) {
         const providerId = String(provider?.id ?? "").trim();
         if (!providerId) {
+          continue;
+        }
+
+        if (connectedProviders && connectedProviders.size > 0 && !connectedProviders.has(providerId)) {
           continue;
         }
 
@@ -259,6 +303,10 @@ export class OpenCodeService {
         defaultModel = defaults.model;
       }
 
+      if (!defaultModel && typeof providersPayload?.model === "string" && providersPayload.model.includes("/")) {
+        defaultModel = providersPayload.model;
+      }
+
       if (!defaultModel) {
         for (const [key, value] of Object.entries(defaults as Record<string, unknown>)) {
           if (typeof value !== "string") {
@@ -281,10 +329,11 @@ export class OpenCodeService {
         defaultModel
       };
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       return {
         ok: false,
         models: [],
-        error: error instanceof Error ? error.message : String(error)
+        error: this.decorateConnectionError(message)
       };
     }
   }
@@ -294,16 +343,51 @@ export class OpenCodeService {
       if (!this.client) {
         await this.connect();
       }
-      const response = await this.client.global.health();
-      const version = response?.data?.version ?? response?.version;
-      return {
-        ok: true,
-        version
-      };
-    } catch (error) {
+
+      const globalHealth = await this.callSdkMethod<any>((this.client as any).global, "health", {
+        throwOnError: true
+      });
+      if (globalHealth.ok) {
+        return {
+          ok: true,
+          version: this.extractVersion(globalHealth.data)
+        };
+      }
+
+      const rawHealth = await this.callRawClient<any>("get", {
+        url: "/global/health"
+      });
+      if (rawHealth.ok) {
+        return {
+          ok: true,
+          version: this.extractVersion(rawHealth.data)
+        };
+      }
+
+      const appGet = await this.callSdkMethod<any>((this.client as any).app, "get", {
+        throwOnError: true
+      });
+      if (appGet.ok) {
+        return {
+          ok: true,
+          version: this.extractVersion(appGet.data)
+        };
+      }
+
+      const combinedError = this.joinErrors(
+        globalHealth.missing ? undefined : globalHealth.error,
+        rawHealth.error,
+        appGet.error
+      );
       return {
         ok: false,
-        error: error instanceof Error ? error.message : String(error)
+        error: this.decorateConnectionError(combinedError)
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        error: this.decorateConnectionError(message)
       };
     }
   }
@@ -380,11 +464,7 @@ export class OpenCodeService {
         };
       }
 
-      const response = await this.client.session.prompt({
-        path: { id: input.opencodeSessionId },
-        body,
-        signal: this.currentAbortController.signal
-      });
+      const response = await this.promptSession(input.opencodeSessionId, body, this.currentAbortController.signal);
 
       const parsed = this.extractEnvelope(response);
       return parsed;
@@ -392,6 +472,347 @@ export class OpenCodeService {
       clearTimeout(timeout);
       this.currentAbortController = null;
     }
+  }
+
+  private async promptSession(opencodeSessionId: string, body: any, signal: AbortSignal): Promise<any> {
+    const sdkPrompt = await this.callSdkMethod<any>((this.client as any).session, "prompt", {
+      path: { id: opencodeSessionId },
+      body,
+      signal,
+      throwOnError: true
+    });
+
+    if (sdkPrompt.ok) {
+      return sdkPrompt.data;
+    }
+
+    const rawPrompt = await this.callRawClient<any>("post", {
+      url: "/session/{id}/prompt",
+      path: { id: opencodeSessionId },
+      body,
+      signal
+    });
+
+    if (rawPrompt.ok) {
+      return rawPrompt.data;
+    }
+
+    const legacyChat = await this.promptSessionViaLegacyChat(opencodeSessionId, body, signal);
+    if (legacyChat.ok) {
+      return legacyChat.data;
+    }
+
+    throw new Error(this.joinErrors(sdkPrompt.error, rawPrompt.error, legacyChat.error));
+  }
+
+  private async promptSessionViaLegacyChat(
+    opencodeSessionId: string,
+    body: any,
+    signal: AbortSignal
+  ): Promise<{ ok: boolean; data?: any; error?: string }> {
+    const modelOverride = await this.resolveLegacyChatModel();
+    if (!modelOverride) {
+      return {
+        ok: false,
+        error: "Legacy chat fallback needs a resolved provider/model. Verify OpenCode and choose a model first."
+      };
+    }
+
+    const chatBody = {
+      providerID: modelOverride.providerID,
+      modelID: modelOverride.modelID,
+      agent: body.agent,
+      parts: body.parts
+    };
+
+    const chatResult = await this.callSdkMethod<any>((this.client as any).session, "chat", {
+      path: { id: opencodeSessionId },
+      body: chatBody,
+      signal,
+      throwOnError: true
+    });
+
+    if (!chatResult.ok) {
+      return {
+        ok: false,
+        error: chatResult.error
+      };
+    }
+
+    const messageId = String(chatResult.data?.id ?? "").trim();
+    if (!messageId) {
+      return {
+        ok: true,
+        data: chatResult.data
+      };
+    }
+
+    const messageDetails = await this.callSdkMethod<any>((this.client as any).session, "message", {
+      path: {
+        id: opencodeSessionId,
+        messageID: messageId
+      },
+      signal,
+      throwOnError: true
+    });
+
+    if (messageDetails.ok) {
+      return {
+        ok: true,
+        data: messageDetails.data
+      };
+    }
+
+    return {
+      ok: true,
+      data: chatResult.data
+    };
+  }
+
+  private async resolveLegacyChatModel(): Promise<{ providerID: string; modelID: string } | null> {
+    if (this.config.opencode.providerId && this.config.opencode.modelId) {
+      return {
+        providerID: this.config.opencode.providerId,
+        modelID: this.config.opencode.modelId
+      };
+    }
+
+    if (this.legacyModelOverride) {
+      return this.legacyModelOverride;
+    }
+
+    const available = await this.listAvailableModels();
+    if (!available.ok) {
+      return null;
+    }
+
+    const candidate = available.defaultModel || available.models[0]?.id;
+    if (!candidate || !candidate.includes("/")) {
+      return null;
+    }
+
+    const slashIndex = candidate.indexOf("/");
+    const providerID = candidate.slice(0, slashIndex);
+    const modelID = candidate.slice(slashIndex + 1);
+
+    if (!providerID || !modelID) {
+      return null;
+    }
+
+    this.legacyModelOverride = { providerID, modelID };
+    return this.legacyModelOverride;
+  }
+
+  private async callSdkMethod<T>(
+    scope: any,
+    method: string,
+    options?: any
+  ): Promise<{ ok: boolean; data?: T; error?: string; missing?: boolean }> {
+    if (!scope || typeof scope[method] !== "function") {
+      return {
+        ok: false,
+        error: `OpenCode SDK method '${method}' is unavailable`,
+        missing: true
+      };
+    }
+
+    try {
+      const response = await scope[method](options);
+      const unwrapped = this.unwrapSdkResponse<T>(response);
+      if (!unwrapped.ok) {
+        return {
+          ok: false,
+          error: unwrapped.error
+        };
+      }
+      return {
+        ok: true,
+        data: unwrapped.data
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: this.extractError(error)
+      };
+    }
+  }
+
+  private async callRawClient<T>(
+    method: "get" | "post",
+    options: any
+  ): Promise<{ ok: boolean; data?: T; error?: string; missing?: boolean }> {
+    const rawClient = this.client?._client;
+    if (!rawClient || typeof rawClient[method] !== "function") {
+      return {
+        ok: false,
+        error: "OpenCode SDK raw client is unavailable",
+        missing: true
+      };
+    }
+
+    try {
+      const response = await rawClient[method]({
+        throwOnError: true,
+        ...options,
+        ...(method === "post"
+          ? {
+              headers: {
+                "Content-Type": "application/json",
+                ...(options?.headers ?? {})
+              }
+            }
+          : {})
+      });
+      const unwrapped = this.unwrapSdkResponse<T>(response);
+      if (!unwrapped.ok) {
+        return {
+          ok: false,
+          error: unwrapped.error
+        };
+      }
+      return {
+        ok: true,
+        data: unwrapped.data
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: this.extractError(error)
+      };
+    }
+  }
+
+  private unwrapSdkResponse<T>(response: any): { ok: boolean; data?: T; error?: string } {
+    if (response && typeof response === "object" && "error" in response && response.error) {
+      return {
+        ok: false,
+        error: this.extractError(response.error)
+      };
+    }
+
+    if (response && typeof response === "object" && "data" in response) {
+      if (typeof response.data === "undefined") {
+        return {
+          ok: false,
+          error: "OpenCode returned an empty response payload"
+        };
+      }
+
+      return {
+        ok: true,
+        data: response.data as T
+      };
+    }
+
+    if (typeof response === "undefined") {
+      return {
+        ok: false,
+        error: "OpenCode returned no response"
+      };
+    }
+
+    return {
+      ok: true,
+      data: response as T
+    };
+  }
+
+  private extractVersion(payload: any): string | undefined {
+    const versionCandidates = [
+      payload?.version,
+      payload?.app?.version,
+      payload?.server?.version,
+      payload?.meta?.version
+    ];
+
+    for (const candidate of versionCandidates) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        return candidate;
+      }
+    }
+
+    return undefined;
+  }
+
+  private extractError(error: unknown): string {
+    if (!error) {
+      return "Unknown OpenCode error";
+    }
+
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    if (typeof error === "string") {
+      return error;
+    }
+
+    if (typeof error === "object") {
+      const maybeError = error as Record<string, unknown>;
+      const message = maybeError.message;
+      if (typeof message === "string" && message.trim()) {
+        return message;
+      }
+
+      const status = maybeError.status;
+      if (typeof status === "number") {
+        return `HTTP ${status}`;
+      }
+
+      const name = maybeError.name;
+      if (typeof name === "string" && name.trim()) {
+        return name;
+      }
+
+      try {
+        return JSON.stringify(maybeError);
+      } catch {
+        // ignore stringify errors
+      }
+    }
+
+    return String(error);
+  }
+
+  private joinErrors(...errors: Array<string | undefined>): string {
+    const unique = Array.from(new Set(errors.filter((item): item is string => Boolean(item && item.trim()))));
+    if (unique.length === 0) {
+      return "OpenCode request failed";
+    }
+    return unique.join(" | ");
+  }
+
+  private decorateConnectionError(message: string): string {
+    if (!message || message.includes("Could not reach OpenCode")) {
+      return message;
+    }
+
+    if (!this.isConnectionError(message)) {
+      return message;
+    }
+
+    const hint = this.buildServerStartHint();
+    return `${message}. Could not reach OpenCode at ${this.config.opencode.baseUrl}. ${hint}`;
+  }
+
+  private isConnectionError(message: string): boolean {
+    return /(fetch failed|failed to fetch|econnrefused|enotfound|etimedout|ehostunreach|network|socket hang up|timed out)/i.test(
+      message
+    );
+  }
+
+  private buildServerStartHint(): string {
+    try {
+      const parsed = new URL(this.config.opencode.baseUrl);
+      const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+      if (parsed.hostname) {
+        return `Start the server with \`opencode serve --hostname ${parsed.hostname} --port ${port}\` or update the Base URL.`;
+      }
+    } catch {
+      // fall through
+    }
+
+    return "Start the OpenCode server or update the Base URL.";
   }
 
   private buildPrompt(input: {
@@ -436,7 +857,7 @@ export class OpenCodeService {
   }
 
   private extractEnvelope(response: any): PromptResult {
-    const direct = response?.data;
+    const direct = response?.data ?? response;
     if (direct && typeof direct === "object" && direct.status && direct.intent) {
       return {
         envelope: { ...defaultEnvelope(), ...direct },

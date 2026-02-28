@@ -27,6 +27,14 @@ const api = {
     chooseDirectory: () => ipcRenderer.invoke("wizard:choose-directory"),
     probeObsidianCli: (binaryPath: string) => ipcRenderer.invoke("wizard:probe-obsidian-cli", binaryPath),
     probeWhisperCli: (binaryPath: string) => ipcRenderer.invoke("wizard:probe-whisper-cli", binaryPath),
+    precheckRuntime: (payload: {
+      whisperBinaryPath?: string;
+      whisperModelPath?: string;
+      pythonPath?: string;
+      qwenModelPath?: string;
+      runtimeScriptPath?: string;
+      modelsRoot?: string;
+    }) => ipcRenderer.invoke("wizard:precheck-runtime", payload),
     autoSetupRuntime: () => ipcRenderer.invoke("wizard:auto-setup-runtime"),
     downloadWhisperModel: () => ipcRenderer.invoke("wizard:download-whisper"),
     downloadQwenModel: (payload?: { pythonPath?: string }) => ipcRenderer.invoke("wizard:download-qwen", payload),

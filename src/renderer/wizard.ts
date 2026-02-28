@@ -10,6 +10,21 @@ type WizardApi = {
     chooseDirectory: () => Promise<{ canceled: boolean; path: string }>;
     probeObsidianCli: (binaryPath: string) => Promise<{ ok: boolean; stdout: string; stderr: string }>;
     probeWhisperCli: (binaryPath: string) => Promise<{ ok: boolean; stdout: string; stderr: string }>;
+    precheckRuntime: (payload: {
+      whisperBinaryPath?: string;
+      whisperModelPath?: string;
+      pythonPath?: string;
+      qwenModelPath?: string;
+      runtimeScriptPath?: string;
+      modelsRoot?: string;
+    }) => Promise<{
+      ready: boolean;
+      whisperBinaryPath: string;
+      whisperModelPath: string;
+      pythonPath: string;
+      qwenModelPath: string;
+      missing: string[];
+    }>;
     autoSetupRuntime: () => Promise<{
       ok: boolean;
       whisperBinaryPath?: string;
@@ -29,6 +44,7 @@ type WizardApi = {
       ok: boolean;
       version?: string;
       error?: string;
+      healthError?: string;
       models?: Array<{
         id: string;
         providerId: string;
@@ -146,7 +162,7 @@ function applyDefaults(defaults: any, runtimeScriptPath: string): void {
   elements.ttsAck.checked = Boolean(defaults.tts.ack);
   elements.ttsDone.checked = Boolean(defaults.tts.done);
   elements.ttsReadback.checked = Boolean(defaults.tts.readback);
-  elements.opencodeBaseUrl.value = defaults.opencode.baseUrl || "http://127.0.0.1:4096";
+  elements.opencodeBaseUrl.value = defaults.opencode.baseUrl || "http://127.0.0.1:44096";
   elements.opencodeUser.value = defaults.opencode.username || "";
   elements.opencodePass.value = defaults.opencode.password || "";
   elements.opencodeAgent.value = defaults.opencode.agent || "build";
@@ -162,12 +178,9 @@ function applyDefaults(defaults: any, runtimeScriptPath: string): void {
   }
 }
 
-function populateOpenCodeModels(
-  models: Array<{ id: string; providerId: string; modelId: string; label: string }>,
-  defaultModel?: string
-): void {
-  const previous = elements.opencodeModelSelect.value;
-  const preferred = previous || preferredModelFromConfig || defaultModel || "";
+function populateOpenCodeModels(models: Array<{ id: string; providerId: string; modelId: string; label: string }>): void {
+  const previous = elements.opencodeModelSelect.value.trim();
+  const explicitPreferred = previous || preferredModelFromConfig;
 
   elements.opencodeModelSelect.innerHTML = "";
   elements.opencodeModelSelect.append(new Option("Auto (server default)", ""));
@@ -176,10 +189,8 @@ function populateOpenCodeModels(
     elements.opencodeModelSelect.append(new Option(model.label, model.id));
   }
 
-  if (preferred && models.some((model) => model.id === preferred)) {
-    elements.opencodeModelSelect.value = preferred;
-  } else if (defaultModel && models.some((model) => model.id === defaultModel)) {
-    elements.opencodeModelSelect.value = defaultModel;
+  if (explicitPreferred && models.some((model) => model.id === explicitPreferred)) {
+    elements.opencodeModelSelect.value = explicitPreferred;
   } else {
     elements.opencodeModelSelect.value = "";
   }
@@ -263,6 +274,59 @@ async function init(): Promise<void> {
     unsubscribeRuntime();
   });
 
+  const runRuntimePrecheck = async (): Promise<void> => {
+    setInlineMessage(elements.saveMessage, "", "default");
+    autoSetupRuntimeButton.disabled = true;
+    const previousLabel = autoSetupRuntimeButton.textContent ?? "Auto Setup Voice Runtime";
+    autoSetupRuntimeButton.textContent = "Checking...";
+    setStatus("Checking voice runtime...");
+
+    try {
+      const result = await appApi.wizard.precheckRuntime({
+        whisperBinaryPath: elements.whisperBinaryPath.value.trim(),
+        whisperModelPath: elements.whisperModelPath.value.trim(),
+        pythonPath: elements.pythonPath.value.trim(),
+        qwenModelPath: elements.qwenModelPath.value.trim(),
+        runtimeScriptPath: defaultsPayload.runtimeScriptPath,
+        modelsRoot: defaultsPayload.modelsRoot
+      });
+
+      if (result.whisperBinaryPath) {
+        elements.whisperBinaryPath.value = result.whisperBinaryPath;
+      }
+      if (result.whisperModelPath) {
+        elements.whisperModelPath.value = result.whisperModelPath;
+      }
+      if (result.pythonPath) {
+        elements.pythonPath.value = result.pythonPath;
+      }
+      if (result.qwenModelPath) {
+        elements.qwenModelPath.value = result.qwenModelPath;
+      }
+
+      runtimeReady = result.ready;
+      if (result.ready) {
+        setInlineMessage(elements.runtimeMessage, "Voice runtime is installed and ready.", "success");
+        setStatus("Voice runtime detected. You can run tests and continue setup.");
+      } else {
+        const missingText = result.missing.length > 0 ? ` Missing: ${result.missing.join(", ")}.` : "";
+        setInlineMessage(
+          elements.runtimeMessage,
+          `Voice runtime is not fully installed.${missingText} Click Auto Setup Voice Runtime to install missing components.`,
+          "default"
+        );
+        setStatus("Voice runtime setup is required.");
+      }
+    } catch (error) {
+      runtimeReady = false;
+      setInlineMessage(elements.runtimeMessage, error instanceof Error ? error.message : String(error), "error");
+      setStatus("Voice runtime precheck failed.");
+    } finally {
+      autoSetupRuntimeButton.disabled = runtimeReady;
+      autoSetupRuntimeButton.textContent = previousLabel;
+    }
+  };
+
   const runAutoSetup = async (): Promise<void> => {
     runtimeReady = false;
     setInlineMessage(elements.runtimeMessage, "", "default");
@@ -305,7 +369,7 @@ async function init(): Promise<void> {
       );
       setStatus("Voice runtime setup failed.");
     } finally {
-      autoSetupRuntimeButton.disabled = false;
+      autoSetupRuntimeButton.disabled = runtimeReady;
       autoSetupRuntimeButton.textContent = previousLabel;
     }
   };
@@ -314,7 +378,7 @@ async function init(): Promise<void> {
     void runAutoSetup();
   });
 
-  void runAutoSetup();
+  void runRuntimePrecheck();
 
   const verifyOpenCodeAndLoadModels = async (): Promise<boolean> => {
     const result = await appApi.wizard.verifyOpenCode({
@@ -336,17 +400,25 @@ async function init(): Promise<void> {
     setStatus(`OpenCode connected. Version: ${result.version ?? "unknown"}`);
 
     const models = result.models ?? [];
-    populateOpenCodeModels(models, result.defaultModel);
+    populateOpenCodeModels(models);
+    const healthWarning = result.healthError ? `Health warning: ${result.healthError}` : "";
 
     if (models.length > 0) {
-      const selected = elements.opencodeModelSelect.value || result.defaultModel || "auto";
-      setInlineMessage(elements.opencodeModelMessage, `Loaded ${models.length} models. Selected: ${selected}`, "success");
+      const selectedValue = elements.opencodeModelSelect.value;
+      const selected = selectedValue
+        ? selectedValue
+        : result.defaultModel
+          ? `auto (server default: ${result.defaultModel})`
+          : "auto";
+      const modelMessage = `Loaded ${models.length} models. Selected: ${selected}${healthWarning ? `. ${healthWarning}` : ""}`;
+      setInlineMessage(elements.opencodeModelMessage, modelMessage, result.healthError ? "default" : "success");
     } else if (result.modelListError) {
-      setInlineMessage(elements.opencodeModelMessage, result.modelListError, "error");
+      const modelError = healthWarning ? `${result.modelListError}. ${healthWarning}` : result.modelListError;
+      setInlineMessage(elements.opencodeModelMessage, modelError, "error");
     } else {
       setInlineMessage(
         elements.opencodeModelMessage,
-        "No models reported by server. Agent calls will use server default model.",
+        `No models reported by server. Agent calls will use server default model.${healthWarning ? ` ${healthWarning}` : ""}`,
         "default"
       );
     }

@@ -1,7 +1,10 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, shell, systemPreferences } from "electron";
+import { spawn } from "node:child_process";
 import path from "node:path";
-import { mkdir } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
+import { mkdir, readdir, stat } from "node:fs/promises";
 import {
+  EMBEDDED_OPENCODE_BASE_URL,
   configExists,
   ensureAppDirectories,
   getDataPath,
@@ -20,7 +23,9 @@ import { VoiceOrchestrator } from "./orchestrator";
 import { WhisperService } from "./stt";
 import { TtsService } from "./tts";
 import { AppConfig, CaptureResult } from "./types";
+import { execCommand } from "./utils";
 import { autoSetupVoiceRuntime } from "./voice-runtime-setup";
+import { resolveWhisperBinaryPath } from "./whisper-path";
 
 function shouldOpenConfigFromArgv(argv: string[]): boolean {
   return argv.some((part) => {
@@ -43,6 +48,32 @@ let lastStatePayload: { state: string; label: string; queueDepth: number } = {
   label: "Idle",
   queueDepth: 0
 };
+
+const embeddedOpenCodeUrl = new URL(EMBEDDED_OPENCODE_BASE_URL);
+const embeddedOpenCodeHost = embeddedOpenCodeUrl.hostname || "127.0.0.1";
+const embeddedOpenCodePort = embeddedOpenCodeUrl.port || "44096";
+
+let managedOpenCodeServerProcess: ReturnType<typeof spawn> | null = null;
+let managedOpenCodeServerStartedByApp = false;
+let managedOpenCodeServerStarting: Promise<void> | null = null;
+
+interface RuntimePrecheckPayload {
+  whisperBinaryPath?: string;
+  whisperModelPath?: string;
+  pythonPath?: string;
+  qwenModelPath?: string;
+  runtimeScriptPath?: string;
+  modelsRoot?: string;
+}
+
+interface RuntimePrecheckResult {
+  ready: boolean;
+  whisperBinaryPath: string;
+  whisperModelPath: string;
+  pythonPath: string;
+  qwenModelPath: string;
+  missing: string[];
+}
 
 function rendererPath(fileName: string): string {
   return path.join(app.getAppPath(), "dist", "renderer", fileName);
@@ -142,6 +173,413 @@ function publishActivityUpdated(): void {
   }
 }
 
+function stringifyError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+async function isOpenCodeServerReachable(): Promise<boolean> {
+  try {
+    const response = await fetch(`${EMBEDDED_OPENCODE_BASE_URL}/global/health`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureManagedOpenCodeServerRunning(): Promise<void> {
+  if (await isOpenCodeServerReachable()) {
+    return;
+  }
+
+  if (!managedOpenCodeServerStarting) {
+    managedOpenCodeServerStarting = (async () => {
+      const logs: string[] = [];
+      const processRef = spawn("opencode", ["serve", "--hostname", embeddedOpenCodeHost, "--port", embeddedOpenCodePort], {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true
+      });
+
+      managedOpenCodeServerProcess = processRef;
+      managedOpenCodeServerStartedByApp = true;
+
+      const pushLog = (chunk: Buffer): void => {
+        const text = chunk.toString();
+        if (!text.trim()) {
+          return;
+        }
+        logs.push(text.trim());
+        if (logs.length > 20) {
+          logs.shift();
+        }
+      };
+
+      processRef.stdout.on("data", pushLog);
+      processRef.stderr.on("data", pushLog);
+
+      let exited = false;
+      let exitCode: number | null = null;
+      let exitSignal: NodeJS.Signals | null = null;
+      let launchError: string | null = null;
+
+      processRef.once("error", (error) => {
+        exited = true;
+        launchError = stringifyError(error);
+        if (managedOpenCodeServerProcess === processRef) {
+          managedOpenCodeServerProcess = null;
+        }
+      });
+
+      processRef.once("exit", (code, signal) => {
+        exited = true;
+        exitCode = code;
+        exitSignal = signal;
+        if (managedOpenCodeServerProcess === processRef) {
+          managedOpenCodeServerProcess = null;
+        }
+      });
+
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline) {
+        if (await isOpenCodeServerReachable()) {
+          return;
+        }
+
+        if (exited) {
+          break;
+        }
+
+        await delay(350);
+      }
+
+      const logTail = logs.length > 0 ? logs.join(" | ") : "No server logs were captured.";
+
+      if (exited) {
+        throw new Error(
+          `OpenCode server failed to start on ${EMBEDDED_OPENCODE_BASE_URL} (${launchError ? `error=${launchError}` : `code=${String(
+            exitCode
+          )}, signal=${String(exitSignal)}`}). ${logTail}`
+        );
+      }
+
+      throw new Error(`Timed out waiting for OpenCode server at ${EMBEDDED_OPENCODE_BASE_URL}. ${logTail}`);
+    })()
+      .catch((error) => {
+        managedOpenCodeServerStartedByApp = false;
+        throw error;
+      })
+      .finally(() => {
+        managedOpenCodeServerStarting = null;
+      });
+  }
+
+  await managedOpenCodeServerStarting;
+}
+
+async function stopManagedOpenCodeServer(): Promise<void> {
+  if (!managedOpenCodeServerStartedByApp) {
+    return;
+  }
+
+  const processRef = managedOpenCodeServerProcess;
+  managedOpenCodeServerProcess = null;
+  managedOpenCodeServerStartedByApp = false;
+
+  if (!processRef || processRef.exitCode !== null) {
+    return;
+  }
+
+  processRef.kill();
+  await delay(800);
+
+  if (processRef.exitCode === null && processRef.pid) {
+    if (process.platform === "win32") {
+      const killer = spawn("taskkill", ["/PID", String(processRef.pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true
+      });
+      await new Promise<void>((resolve) => {
+        killer.once("exit", () => resolve());
+        killer.once("error", () => resolve());
+      });
+    } else {
+      processRef.kill("SIGKILL");
+      await delay(150);
+    }
+  }
+}
+
+async function precheckVoiceRuntime(payload: RuntimePrecheckPayload): Promise<RuntimePrecheckResult> {
+  const userDataPath = app.getPath("userData");
+  const modelsRoot = String(payload.modelsRoot ?? getModelsPath()).trim() || getModelsPath();
+  const runtimeScriptPath = String(payload.runtimeScriptPath ?? getRuntimeScriptPath()).trim() || getRuntimeScriptPath();
+
+  const defaultWhisperModelPath = path.join(modelsRoot, "whisper", "ggml-base.en.bin");
+  const defaultQwenModelPath = path.join(modelsRoot, "qwen", "Qwen3-TTS-12Hz-1.7B-CustomVoice");
+  const defaultPythonPath =
+    process.platform === "win32"
+      ? path.join(userDataPath, "tools", "qwen-tts-venv", "Scripts", "python.exe")
+      : path.join(userDataPath, "tools", "qwen-tts-venv", "bin", "python");
+
+  const preferredWhisper = String(payload.whisperBinaryPath ?? "").trim() || "whisper-cli";
+  const whisperResolution = await resolveWhisperBinaryForPrecheck(preferredWhisper, userDataPath);
+
+  const whisperModelPath =
+    (await resolveFirstExistingFilePath([String(payload.whisperModelPath ?? "").trim(), defaultWhisperModelPath])) ??
+    (String(payload.whisperModelPath ?? "").trim() || defaultWhisperModelPath);
+  const whisperModelReady = await fileHasContent(whisperModelPath);
+
+  const preferredPython = String(payload.pythonPath ?? "").trim();
+  const pythonResolution = await resolvePythonForPrecheck(preferredPython, defaultPythonPath);
+
+  const qwenModelPath =
+    (await resolveFirstExistingQwenModelPath([String(payload.qwenModelPath ?? "").trim(), defaultQwenModelPath])) ??
+    (String(payload.qwenModelPath ?? "").trim() || defaultQwenModelPath);
+  const qwenModelReady = await directoryHasQwenModelArtifacts(qwenModelPath);
+
+  const runtimeScriptReady = await pathExists(runtimeScriptPath, "file");
+
+  const missing: string[] = [];
+  if (!whisperResolution.ready) {
+    missing.push("whisper.cpp binary");
+  }
+  if (!whisperModelReady) {
+    missing.push("whisper.cpp model");
+  }
+  if (!pythonResolution.executableReady) {
+    missing.push("Python executable");
+  } else if (!pythonResolution.depsReady) {
+    missing.push("Qwen TTS Python dependencies");
+  }
+  if (!qwenModelReady) {
+    missing.push("Qwen model");
+  }
+  if (!runtimeScriptReady) {
+    missing.push("Qwen runtime script");
+  }
+
+  return {
+    ready: missing.length === 0,
+    whisperBinaryPath: whisperResolution.path,
+    whisperModelPath,
+    pythonPath: pythonResolution.path,
+    qwenModelPath,
+    missing
+  };
+}
+
+async function resolveWhisperBinaryForPrecheck(
+  preferredBinaryPath: string,
+  userDataPath: string
+): Promise<{ path: string; ready: boolean }> {
+  const preferredResolved = await resolveWhisperBinaryPath(preferredBinaryPath, userDataPath);
+  if (await pathExists(preferredResolved, "file")) {
+    return {
+      path: preferredResolved,
+      ready: true
+    };
+  }
+
+  if (preferredBinaryPath && preferredBinaryPath !== "whisper-cli") {
+    const probe = await probeWhisperCli(preferredBinaryPath);
+    if (probe.ok) {
+      return {
+        path: preferredBinaryPath,
+        ready: true
+      };
+    }
+  }
+
+  const fallbackResolved = await resolveWhisperBinaryPath("whisper-cli", userDataPath);
+  if (await pathExists(fallbackResolved, "file")) {
+    return {
+      path: fallbackResolved,
+      ready: true
+    };
+  }
+
+  const fallbackProbe = await probeWhisperCli("whisper-cli");
+  if (fallbackProbe.ok) {
+    return {
+      path: "whisper-cli",
+      ready: true
+    };
+  }
+
+  return {
+    path: preferredBinaryPath || fallbackResolved || "whisper-cli",
+    ready: false
+  };
+}
+
+async function resolvePythonForPrecheck(
+  preferredPythonPath: string,
+  defaultPythonPath: string
+): Promise<{ path: string; executableReady: boolean; depsReady: boolean }> {
+  const candidates = [preferredPythonPath, defaultPythonPath, "python", "python3"];
+  const seen = new Set<string>();
+
+  let firstExecutablePath: string | null = null;
+  for (const candidateRaw of candidates) {
+    const candidate = candidateRaw.trim();
+    if (!candidate) {
+      continue;
+    }
+
+    const key = candidate.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    const executableReady = await pythonCommandWorks(candidate);
+    if (!executableReady) {
+      continue;
+    }
+
+    firstExecutablePath = firstExecutablePath ?? candidate;
+
+    const depsReady = await pythonRuntimeDepsPresent(candidate);
+    if (depsReady) {
+      return {
+        path: candidate,
+        executableReady: true,
+        depsReady: true
+      };
+    }
+  }
+
+  if (firstExecutablePath) {
+    return {
+      path: firstExecutablePath,
+      executableReady: true,
+      depsReady: false
+    };
+  }
+
+  return {
+    path: preferredPythonPath || defaultPythonPath || "python",
+    executableReady: false,
+    depsReady: false
+  };
+}
+
+async function resolveFirstExistingFilePath(candidates: string[]): Promise<string | null> {
+  const seen = new Set<string>();
+  for (const candidateRaw of candidates) {
+    const candidate = candidateRaw.trim();
+    if (!candidate) {
+      continue;
+    }
+    const key = candidate.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    if (await fileHasContent(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function resolveFirstExistingQwenModelPath(candidates: string[]): Promise<string | null> {
+  const seen = new Set<string>();
+  for (const candidateRaw of candidates) {
+    const candidate = candidateRaw.trim();
+    if (!candidate) {
+      continue;
+    }
+    const key = candidate.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    if (await directoryHasQwenModelArtifacts(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function pythonCommandWorks(command: string): Promise<boolean> {
+  try {
+    const result = await execCommand(command, ["--version"], { timeoutMs: 10000 });
+    return result.code === 0;
+  } catch {
+    return false;
+  }
+}
+
+async function pythonRuntimeDepsPresent(command: string): Promise<boolean> {
+  try {
+    const result = await execCommand(command, ["-c", "import qwen_tts, soundfile"], { timeoutMs: 15000 });
+    return result.code === 0;
+  } catch {
+    return false;
+  }
+}
+
+async function fileHasContent(filePath: string): Promise<boolean> {
+  try {
+    const details = await stat(filePath);
+    return details.isFile() && details.size > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function pathExists(filePath: string, kind: "file" | "directory" | "any" = "any"): Promise<boolean> {
+  try {
+    const details = await stat(filePath);
+    if (kind === "file") {
+      return details.isFile();
+    }
+    if (kind === "directory") {
+      return details.isDirectory();
+    }
+    return details.isFile() || details.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function directoryHasQwenModelArtifacts(dirPath: string): Promise<boolean> {
+  try {
+    const details = await stat(dirPath);
+    if (!details.isDirectory()) {
+      return false;
+    }
+
+    const entries = await readdir(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile()) {
+        continue;
+      }
+      const fullPath = path.join(dirPath, entry.name);
+      const name = entry.name.toLowerCase();
+      if (name.endsWith(".safetensors") || name === "tokenizer.json" || name === "tokenizer_config.json") {
+        if (await fileHasContent(fullPath)) {
+          return true;
+        }
+      }
+    }
+
+    const required = ["config.json", "model.safetensors", "tokenizer.json", "tokenizer_config.json"];
+    for (const fileName of required) {
+      if (await fileHasContent(path.join(dirPath, fileName))) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 async function registerHotkeys(activeConfig: AppConfig): Promise<void> {
   globalShortcut.unregisterAll();
 
@@ -181,6 +619,7 @@ async function restartRuntime(activeConfig: AppConfig): Promise<void> {
 }
 
 async function initializeRuntime(activeConfig: AppConfig): Promise<void> {
+  await ensureManagedOpenCodeServerRunning();
   await mkdir(getDataPath(), { recursive: true });
 
   database = new AppDatabase(getDataPath());
@@ -297,6 +736,10 @@ function setupIpcHandlers(): void {
     return await probeWhisperCli(binaryPath);
   });
 
+  ipcMain.handle("wizard:precheck-runtime", async (_event, payload: RuntimePrecheckPayload) => {
+    return await precheckVoiceRuntime(payload ?? {});
+  });
+
   ipcMain.handle("wizard:auto-setup-runtime", async () => {
     try {
       const result = await autoSetupVoiceRuntime({
@@ -378,19 +821,24 @@ function setupIpcHandlers(): void {
         const service = new OpenCodeService(current);
         await service.connect();
         const health = await service.healthCheck();
-        if (!health.ok) {
+        const modelsResult = await service.listAvailableModels();
+
+        if (!health.ok && !modelsResult.ok) {
+          const combinedErrors = Array.from(
+            new Set([health.error, modelsResult.error].filter((value): value is string => Boolean(value)))
+          );
           return {
             ok: false,
-            error: health.error ?? "OpenCode health check failed"
+            error: combinedErrors.join(" | ") || "OpenCode verification failed"
           };
         }
 
-        const modelsResult = await service.listAvailableModels();
         return {
           ok: true,
           version: health.version,
-          models: modelsResult.models,
-          defaultModel: modelsResult.defaultModel,
+          healthError: health.ok ? undefined : health.error,
+          models: modelsResult.ok ? modelsResult.models : [],
+          defaultModel: modelsResult.ok ? modelsResult.defaultModel : undefined,
           modelListError: modelsResult.ok ? undefined : modelsResult.error
         };
       } catch (error) {
@@ -458,6 +906,16 @@ function setupIpcHandlers(): void {
 async function bootstrap(): Promise<void> {
   await ensureAppDirectories();
   setupIpcHandlers();
+
+  try {
+    await ensureManagedOpenCodeServerRunning();
+  } catch (error) {
+    await dialog.showMessageBox({
+      type: "warning",
+      message: "OpenCode sidecar failed to start",
+      detail: `${stringifyError(error)}\n\nYou can start it manually with: opencode serve --hostname ${embeddedOpenCodeHost} --port ${embeddedOpenCodePort}`
+    });
+  }
 
   const openConfigOnStart = shouldOpenConfigFromArgv(process.argv);
 
@@ -531,6 +989,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", async () => {
   await shutdownRuntime("app_exit");
+  await stopManagedOpenCodeServer();
 });
 
 app.on("activate", () => {

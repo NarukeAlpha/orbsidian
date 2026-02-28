@@ -51,7 +51,8 @@ Below is the 5.3 codex description of the project, not written manually.
   - `qwen-tts`
   - `soundfile`
   - `torch`
-- OpenCode server reachable from desktop app (default `http://127.0.0.1:4096`)
+- OpenCode CLI installed (`opencode` on PATH)
+  - Orbsidian starts a managed OpenCode sidecar on `http://127.0.0.1:44096`
 
 ## Install and run
 

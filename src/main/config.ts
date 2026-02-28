@@ -4,6 +4,21 @@ import path from "node:path";
 import { AppConfig } from "./types";
 
 export const APP_CONFIG_VERSION = 1;
+export const EMBEDDED_OPENCODE_BASE_URL = "http://127.0.0.1:44096";
+
+const LEGACY_LOCAL_OPENCODE_BASE_URLS = new Set([
+  "",
+  "http://127.0.0.1:4096",
+  "http://localhost:4096"
+]);
+
+function normalizeOpenCodeBaseUrl(value: string | undefined): string {
+  const normalized = String(value ?? "").trim();
+  if (LEGACY_LOCAL_OPENCODE_BASE_URLS.has(normalized)) {
+    return EMBEDDED_OPENCODE_BASE_URL;
+  }
+  return normalized || EMBEDDED_OPENCODE_BASE_URL;
+}
 
 export function getUserDataPath(): string {
   return app.getPath("userData");
@@ -74,7 +89,7 @@ export function getDefaultConfig(): AppConfig {
       chunkChars: 420
     },
     opencode: {
-      baseUrl: "http://127.0.0.1:4096",
+      baseUrl: EMBEDDED_OPENCODE_BASE_URL,
       username: "",
       password: "",
       agent: "build",
@@ -102,7 +117,11 @@ export async function loadConfig(): Promise<AppConfig | null> {
     hotkeys: { ...getDefaultConfig().hotkeys, ...(parsed.hotkeys ?? {}) },
     stt: { ...getDefaultConfig().stt, ...(parsed.stt ?? {}) },
     tts: { ...getDefaultConfig().tts, ...(parsed.tts ?? {}) },
-    opencode: { ...getDefaultConfig().opencode, ...(parsed.opencode ?? {}) },
+    opencode: {
+      ...getDefaultConfig().opencode,
+      ...(parsed.opencode ?? {}),
+      baseUrl: normalizeOpenCodeBaseUrl(parsed?.opencode?.baseUrl)
+    },
     ui: { ...getDefaultConfig().ui, ...(parsed.ui ?? {}) }
   };
 }
@@ -113,6 +132,11 @@ export async function saveConfig(config: AppConfig): Promise<void> {
     ...getDefaultConfig(),
     ...config,
     version: APP_CONFIG_VERSION
+  };
+  next.opencode = {
+    ...getDefaultConfig().opencode,
+    ...(next.opencode ?? {}),
+    baseUrl: normalizeOpenCodeBaseUrl(next?.opencode?.baseUrl)
   };
   await writeFile(getConfigPath(), JSON.stringify(next, null, 2), "utf8");
 }

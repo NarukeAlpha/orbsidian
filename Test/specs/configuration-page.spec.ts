@@ -7,21 +7,54 @@ const wizardPageUrl = "http://127.0.0.1:4173/wizard.html";
 
 interface MockState {
   autoSetupCalls: number;
+  precheckCalls: number;
   verifyCalls: Array<{ baseUrl: string; username: string; password: string }>;
   saveCalls: any[];
 }
 
-async function openWizardWithMockApi(page: Page): Promise<void> {
+interface VerifyModelOption {
+  id: string;
+  providerId: string;
+  modelId: string;
+  label: string;
+}
+
+interface VerifyOpenCodeResponse {
+  ok?: boolean;
+  version?: string | null;
+  error?: string;
+  healthError?: string;
+  models?: VerifyModelOption[];
+  defaultModel?: string;
+  modelListError?: string;
+}
+
+interface RuntimePrecheckResponse {
+  ready?: boolean;
+  whisperBinaryPath?: string;
+  whisperModelPath?: string;
+  pythonPath?: string;
+  qwenModelPath?: string;
+  missing?: string[];
+}
+
+interface WizardMockOptions {
+  verifyOpenCodeResponse?: VerifyOpenCodeResponse;
+  runtimePrecheckResponse?: RuntimePrecheckResponse;
+}
+
+async function openWizardWithMockApi(page: Page, options: WizardMockOptions = {}): Promise<void> {
   if (!existsSync(wizardPagePath)) {
     throw new Error(`Missing ${wizardPagePath}. Run npm run build first.`);
   }
 
-  await page.addInitScript(() => {
+  await page.addInitScript((initOptions: WizardMockOptions) => {
     const downloadListeners: Array<(payload: any) => void> = [];
     const runtimeListeners: Array<(payload: any) => void> = [];
 
     const mockState = {
       autoSetupCalls: 0,
+      precheckCalls: 0,
       verifyCalls: [] as Array<{ baseUrl: string; username: string; password: string }>,
       saveCalls: [] as any[]
     };
@@ -56,7 +89,7 @@ async function openWizardWithMockApi(page: Page): Promise<void> {
         chunkChars: 420
       },
       opencode: {
-        baseUrl: "http://127.0.0.1:4096",
+        baseUrl: "http://127.0.0.1:44096",
         username: "",
         password: "",
         agent: "build",
@@ -83,6 +116,22 @@ async function openWizardWithMockApi(page: Page): Promise<void> {
         chooseDirectory: async () => ({ canceled: false, path: "C:/vaults/demo" }),
         probeObsidianCli: async () => ({ ok: true, stdout: "obsidian 1.0.0", stderr: "" }),
         probeWhisperCli: async () => ({ ok: true, stdout: "whisper-cli help", stderr: "" }),
+        precheckRuntime: async () => {
+          mockState.precheckCalls += 1;
+          const defaultPrecheckResponse = {
+            ready: true,
+            whisperBinaryPath: "C:/orbsidian/tools/whisper.cpp/build/bin/whisper-cli.exe",
+            whisperModelPath: "C:/orbsidian/models/whisper/ggml-base.en.bin",
+            pythonPath: "C:/orbsidian/tools/qwen-tts-venv/Scripts/python.exe",
+            qwenModelPath: "C:/orbsidian/models/qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+            missing: [] as string[]
+          };
+
+          return {
+            ...defaultPrecheckResponse,
+            ...(initOptions?.runtimePrecheckResponse ?? {})
+          };
+        },
         autoSetupRuntime: async () => {
           mockState.autoSetupCalls += 1;
 
@@ -122,7 +171,7 @@ async function openWizardWithMockApi(page: Page): Promise<void> {
         }),
         verifyOpenCode: async (payload: { baseUrl: string; username: string; password: string }) => {
           mockState.verifyCalls.push(payload);
-          return {
+          const defaultVerifyResponse = {
             ok: true,
             version: "0.4.0",
             models: [
@@ -140,6 +189,11 @@ async function openWizardWithMockApi(page: Page): Promise<void> {
               }
             ],
             defaultModel: "openai/gpt-4.1-mini"
+          };
+
+          return {
+            ...defaultVerifyResponse,
+            ...(initOptions?.verifyOpenCodeResponse ?? {})
           };
         },
         saveConfig: async (config: any) => {
@@ -166,7 +220,7 @@ async function openWizardWithMockApi(page: Page): Promise<void> {
         }
       }
     };
-  });
+  }, options);
 
   await page.goto(wizardPageUrl);
 }
@@ -181,9 +235,28 @@ test("auto setup populates runtime fields", async ({ page }) => {
   await expect(page.locator("#runtimeMessage")).toHaveText("Voice runtime is installed and ready.");
   await expect(page.locator("#whisperBinaryPath")).toHaveValue("C:/orbsidian/tools/whisper.cpp/build/bin/whisper-cli.exe");
   await expect(page.locator("#pythonPath")).toHaveValue("C:/orbsidian/tools/qwen-tts-venv/Scripts/python.exe");
+  await expect(page.locator("#autoSetupRuntime")).toBeDisabled();
 
   const mockState = await getMockState(page);
-  expect(mockState.autoSetupCalls).toBe(1);
+  expect(mockState.precheckCalls).toBe(1);
+  expect(mockState.autoSetupCalls).toBe(0);
+});
+
+test("runtime precheck enables auto setup when components are missing", async ({ page }) => {
+  await openWizardWithMockApi(page, {
+    runtimePrecheckResponse: {
+      ready: false,
+      missing: ["whisper.cpp model", "Qwen model"]
+    }
+  });
+
+  await expect(page.locator("#runtimeMessage")).toContainText("Voice runtime is not fully installed.");
+  await expect(page.locator("#runtimeMessage")).toContainText("Missing: whisper.cpp model, Qwen model.");
+  await expect(page.locator("#autoSetupRuntime")).toBeEnabled();
+
+  const mockState = await getMockState(page);
+  expect(mockState.precheckCalls).toBe(1);
+  expect(mockState.autoSetupCalls).toBe(0);
 });
 
 test("verify OpenCode loads models and save persists selected model", async ({ page }) => {
@@ -205,4 +278,36 @@ test("verify OpenCode loads models and save persists selected model", async ({ p
   expect(mockState.saveCalls).toHaveLength(1);
   expect(mockState.saveCalls[0].opencode.providerId).toBe("anthropic");
   expect(mockState.saveCalls[0].opencode.modelId).toBe("claude-sonnet-4");
+});
+
+test("verify OpenCode keeps auto model when using server default", async ({ page }) => {
+  await openWizardWithMockApi(page);
+
+  await expect(page.locator("#runtimeMessage")).toHaveText("Voice runtime is installed and ready.");
+
+  await page.click("#verifyOpenCode");
+  await expect(page.locator("#opencodeModelSelect")).toHaveValue("");
+
+  await page.click("#saveConfig");
+  await expect(page.locator("#saveMessage")).toHaveText("Configuration saved.");
+
+  const mockState = await getMockState(page);
+  expect(mockState.saveCalls).toHaveLength(1);
+  expect(mockState.saveCalls[0].opencode.providerId).toBe("");
+  expect(mockState.saveCalls[0].opencode.modelId).toBe("");
+});
+
+test("verify OpenCode handles missing version cleanly", async ({ page }) => {
+  await openWizardWithMockApi(page, {
+    verifyOpenCodeResponse: {
+      version: null,
+      healthError: "Health endpoint unavailable"
+    }
+  });
+
+  await expect(page.locator("#runtimeMessage")).toHaveText("Voice runtime is installed and ready.");
+
+  await page.click("#verifyOpenCode");
+  await expect(page.locator("#opencodeMessage")).toContainText("Connected. Version: unknown");
+  await expect(page.locator("#opencodeMessage")).not.toContainText("undefined");
 });
