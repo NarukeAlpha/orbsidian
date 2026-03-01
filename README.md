@@ -22,6 +22,7 @@ I mean obsidian is literally a .md wrapper, and what do modern LLM harnesses rel
 You guessed it,
 Markdown. 
 
+once the app is in a usable state, I will be going back and writing/refactoring the code more manually.
 
 Below is the 5.3 codex description of the project, not written manually. 
 
