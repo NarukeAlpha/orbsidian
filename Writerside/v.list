@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE vars SYSTEM "https://resources.jetbrains.com/writerside/1.0/vars.dtd">
+<vars>
+    <var name="product" value="Orbsidian"/>
+    <var name="repo" value="obsidian-agentic"/>
+    <var name="default_opencode_url" value="http://127.0.0.1:44096"/>
+</vars>

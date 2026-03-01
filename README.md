@@ -111,3 +111,12 @@ Targets:
 
 - macOS: `dmg`
 - Windows: `nsis`
+
+## Codebase docs (Writerside)
+
+Thorough codebase documentation is in `Writerside/`.
+
+- Start page: `Writerside/topics/Overview.md`
+- TOC: `Writerside/orbsidian.tree`
+- Module config: `Writerside/writerside.cfg`
+- GitHub Pages workflow: `.github/workflows/build-docs.yml`

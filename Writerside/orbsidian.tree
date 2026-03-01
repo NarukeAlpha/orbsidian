@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE instance-profile SYSTEM "https://resources.jetbrains.com/writerside/1.0/product-profile.dtd">
+
+<instance-profile id="orbsidian" name="Orbsidian Codebase Guide" start-page="Overview.md">
+    <toc-element topic="Overview.md"/>
+    <toc-element topic="Codebase-map.md"/>
+    <toc-element topic="Architecture-and-runtime-flow.md"/>
+    <toc-element topic="Main-process-deep-dive.md"/>
+    <toc-element topic="Voice-runtime-services.md"/>
+    <toc-element topic="OpenCode-and-Obsidian-integration.md"/>
+    <toc-element topic="Renderer-preload-and-ipc.md"/>
+    <toc-element topic="Database-and-observability.md"/>
+    <toc-element topic="Setup-wizard-and-runtime-bootstrap.md"/>
+    <toc-element topic="Testing-and-validation.md"/>
+    <toc-element topic="Build-packaging-and-github-pages.md"/>
+    <toc-element topic="Troubleshooting-and-debugging.md"/>
+</instance-profile>
