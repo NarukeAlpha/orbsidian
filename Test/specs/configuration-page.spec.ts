@@ -81,7 +81,7 @@ async function openWizardWithMockApi(page: Page, options: WizardMockOptions = {}
         pythonPath: "python",
         modelPath: "",
         runtimeScriptPath: "C:/orbsidian/runtime/qwen_tts.py",
-        speaker: "Chelsie",
+        speaker: "serena",
         language: "English",
         ack: true,
         done: true,

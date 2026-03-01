@@ -67,18 +67,23 @@ export async function downloadQwenCustomVoiceModel(
 
   onProgress?.({
     stage: "downloading_qwen_model",
-    fileName: "huggingface_hub[cli]",
+    fileName: "huggingface_hub",
     fileIndex: 0,
     totalFiles: 2,
     downloadedBytes: 0,
     totalBytes: 1
   });
 
-  await runStrict(
-    pythonPath,
-    ["-m", "pip", "install", "-U", "huggingface_hub[cli]"],
-    "Failed to install huggingface_hub CLI."
-  );
+  await ensureHuggingFaceHubAvailable(pythonPath);
+
+  onProgress?.({
+    stage: "downloading_qwen_model",
+    fileName: "huggingface_hub",
+    fileIndex: 0,
+    totalFiles: 2,
+    downloadedBytes: 1,
+    totalBytes: 1
+  });
 
   const downloadTargets = [
     {
@@ -182,6 +187,19 @@ async function runStrict(command: string, args: string[], errorPrefix: string): 
     const details = (result.stderr || result.stdout || "Unknown error").trim();
     throw new Error(`${errorPrefix} Exit code ${result.code}. ${truncate(details, 1600)}`);
   }
+}
+
+async function ensureHuggingFaceHubAvailable(pythonPath: string): Promise<void> {
+  const probe = await execCommand(pythonPath, ["-c", "import huggingface_hub"], { timeoutMs: 30_000 }).catch(() => null);
+  if (probe && probe.code === 0) {
+    return;
+  }
+
+  await runStrict(
+    pythonPath,
+    ["-m", "pip", "install", "huggingface_hub"],
+    "Failed to install huggingface_hub package."
+  );
 }
 
 async function downloadRepoWithHuggingFace(pythonPath: string, repo: string, localDir: string): Promise<void> {

@@ -11,7 +11,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-path", required=True, help="Local model directory or HF model id")
     parser.add_argument("--text", required=True, help="Text to synthesize")
     parser.add_argument("--output", required=True, help="Output WAV file path")
-    parser.add_argument("--speaker", default="Chelsie", help="CustomVoice speaker name")
+    parser.add_argument("--speaker", default="serena", help="CustomVoice speaker name")
     parser.add_argument("--language", default="English", help="Language value for generate_custom_voice")
     parser.add_argument(
         "--device",
@@ -44,7 +44,19 @@ def resolve_device(device_arg: str):
     return "cpu", torch.float32
 
 
+def remove_script_dir_from_import_path() -> None:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    filtered_paths = []
+    for entry in sys.path:
+        resolved = os.path.abspath(entry or os.getcwd())
+        if resolved == script_dir:
+            continue
+        filtered_paths.append(entry)
+    sys.path[:] = filtered_paths
+
+
 def load_model(model_path: str, device_map: str, dtype):
+    remove_script_dir_from_import_path()
     from qwen_tts import Qwen3TTSModel  # type: ignore[attr-defined]
 
     kwargs = {

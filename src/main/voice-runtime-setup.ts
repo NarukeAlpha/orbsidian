@@ -363,7 +363,7 @@ async function ensureTtsEnvironment(params: {
   await runCommandStrict({
     stage: "tts_env",
     command: venvPythonPath,
-    args: ["-m", "pip", "install", "qwen-tts", "soundfile"]
+    args: ["-m", "pip", "install", "--upgrade", "--upgrade-strategy", "eager", "qwen-tts", "soundfile"]
   });
 
   return venvPythonPath;

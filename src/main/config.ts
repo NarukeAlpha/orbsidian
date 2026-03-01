@@ -81,7 +81,7 @@ export function getDefaultConfig(): AppConfig {
       pythonPath: "python",
       modelPath: "",
       runtimeScriptPath: getRuntimeScriptPath(),
-      speaker: "Chelsie",
+      speaker: "serena",
       language: "English",
       ack: true,
       done: true,
