@@ -13,6 +13,8 @@
     "test:config-page": "npm run build && playwright test -c Test/playwright.config.ts",
     "test:config-page:headed": "npm run build && playwright test -c Test/playwright.config.ts --headed",
     "test:config-page:install": "playwright install chromium",
+    "test:models": "playwright test -c Test/playwright.voice-runtime.config.ts",
+    "test:voice-runtime": "npm run build && npm run test:models",
     "dist": "npm run build && electron-builder",
     "postinstall": "electron-builder install-app-deps"
   },

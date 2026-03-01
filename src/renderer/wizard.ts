@@ -154,7 +154,7 @@ function applyDefaults(defaults: any, runtimeScriptPath: string): void {
   elements.whisperModelPath.value = defaults.stt.modelPath || "";
   elements.pythonPath.value = defaults.tts.pythonPath || "python";
   elements.qwenModelPath.value = defaults.tts.modelPath || "";
-  elements.ttsSpeaker.value = defaults.tts.speaker || "Chelsie";
+  elements.ttsSpeaker.value = defaults.tts.speaker || "serena";
   elements.ttsLanguage.value = defaults.tts.language || "English";
   elements.hotkeyListen.value = defaults.hotkeys.listen;
   elements.hotkeySkip.value = defaults.hotkeys.ttsSkip;
@@ -228,7 +228,7 @@ function buildConfig(runtimeScriptPath: string): any {
       pythonPath: elements.pythonPath.value.trim(),
       modelPath: elements.qwenModelPath.value.trim(),
       runtimeScriptPath,
-      speaker: elements.ttsSpeaker.value.trim() || "Chelsie",
+      speaker: elements.ttsSpeaker.value.trim() || "serena",
       language: elements.ttsLanguage.value.trim() || "English",
       ack: elements.ttsAck.checked,
       done: elements.ttsDone.checked,

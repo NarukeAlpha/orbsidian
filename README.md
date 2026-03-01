@@ -85,6 +85,16 @@ On first run, complete the setup wizard:
 3. Configure OpenCode endpoint and verify connectivity.
 4. Save and start.
 
+## Verify local voice models
+
+After runtime setup is complete, run the smoke test to confirm STT/TTS models are present and can run inference:
+
+```bash
+npm run test:models
+```
+
+If your runtime lives in custom locations, see env overrides in `Test/README.md`.
+
 ## Hotkeys (default)
 
 - Listen toggle: `Cmd/Ctrl+Shift+Space`
