@@ -11,7 +11,9 @@ permissions:
   pages: write
 
 env:
-  INSTANCE: "Writerside/orbsidian"
+  # Format: <module-name>/<instance-id>
+  # module-name comes from Writerside/writerside.cfg <module name="..."/>
+  INSTANCE: "orbsidian-docs/orbsidian"
   DOCKER_VERSION: "2026.02.8644"
 
 jobs:
