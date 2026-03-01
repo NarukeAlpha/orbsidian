@@ -6,11 +6,11 @@ This documentation explains the codebase as a system, not just as a file list. I
 
 %product% is an Electron desktop assistant for Obsidian that is designed around voice-first interaction:
 
-- You trigger listening with a global hotkey.
+- You trigger listening with a global hotkey registered in the main process.
 - The orb window captures microphone audio in the renderer process.
 - The main process transcribes audio with local `whisper.cpp`.
 - The transcript is sent to an OpenCode session for agent-style note actions.
-- Actions prefer Obsidian CLI commands and fall back to direct vault file operations when needed.
+- Agent-side actions prefer Obsidian CLI commands, and app-side fallback uses direct vault file operations when needed.
 - Optional local TTS reads acknowledgements, outcomes, and note readback.
 - A local SQLite database stores request, command, and activity telemetry.
 
@@ -18,17 +18,22 @@ This documentation explains the codebase as a system, not just as a file list. I
 
 ```mermaid
 flowchart LR
-  HK[Global hotkeys] --> ORB[Orb renderer]
-  ORB --> IPC1[IPC bridge preload]
-  IPC1 --> ORCH[VoiceOrchestrator]
+  U[User] --> HK[Global shortcuts]
+  HK --> M[Electron main process]
+
+  ORB[Orb renderer] <--> IPC[Preload IPC bridge]
+  WIZ[Wizard renderer] <--> IPC
+  ACT[Activity renderer] <--> IPC
+  IPC <--> M
+
+  M --> ORCH[VoiceOrchestrator]
   ORCH --> STT[WhisperService]
   ORCH --> OCS[OpenCodeService]
-  OCS --> OCSRV[(OpenCode sidecar)]
-  ORCH --> OBS[Obsidian CLI]
+  OCS --> OCSRV[(OpenCode server: embedded or external)]
+  ORCH --> OBSURI[Obsidian URI open]
   ORCH --> FB[Vault fallback file ops]
   ORCH --> TTS[TtsService + qwen_tts.py]
-  ORCH --> DB[(sql.js SQLite)]
-  DB --> ACT[Activity renderer]
+  ORCH --> DB[(AppDatabase / sql.js SQLite)]
 ```
 
 ## How to read this documentation

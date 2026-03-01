@@ -7,26 +7,44 @@ This page explains how one voice request travels through the system, how state t
 ```mermaid
 sequenceDiagram
     participant U as User
+    participant M as Main process
     participant O as Orb renderer
     participant P as Preload IPC API
-    participant M as Main process
+    participant R as VoiceOrchestrator
     participant W as WhisperService
     participant G as OpenCodeService
-    participant B as Obsidian/FS fallback
+    participant X as OpenCode server
+    participant B as URI open/FS fallback
     participant T as TtsService
     participant D as AppDatabase
+    participant A as Activity renderer
 
-    U->>O: Press listen hotkey
+    U->>M: Press global listen hotkey
+    M->>R: handleListenHotkey()
+    R->>M: onCaptureCommand(start)
+    M->>P: capture:command(start)
+    P->>O: start microphone capture
     O->>P: capture result (base64 wav)
-    P->>M: ipcMain handle capture:result
-    M->>W: transcribeBase64Wav
-    W-->>M: transcript text
-    M->>G: promptAgent(session, transcript, context)
-    G-->>M: envelope JSON
-    M->>B: execute action (CLI first, fallback if needed)
-    M->>D: log request, commands, events
-    M->>T: speak ack/done/readback
-    M-->>O: publish ui state updates
+    P->>M: capture:result
+    M->>R: handleCaptureResult()
+    R->>W: transcribeBase64Wav()
+    W-->>R: transcript text
+    R->>G: promptAgent(session, transcript, context)
+    G->>X: session prompt request
+    X-->>G: envelope JSON
+    G-->>R: parsed prompt result
+    R->>B: open-note URI and/or fallback file ops
+    R->>D: log session/request/command/event rows
+    R->>T: speak ack/done/readback
+    R->>M: onStateChanged + onActivityRefresh
+    M->>P: ui:state + activity:updated
+    P->>O: render state label/queue
+    A->>P: activity:list
+    P->>M: activity:list
+    M->>D: listEvents()
+    D-->>M: latest rows
+    M-->>P: event rows
+    P-->>A: render timeline
 ```
 
 ## Runtime layers and responsibilities
