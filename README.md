@@ -2,27 +2,32 @@
 
 Voice-first desktop app for Obsidian with local STT/TTS and OpenCode agent sessions.
 
-I had a strong vision for a while about a way to organize your thoughts while
-giving it some kind of agency with today's tools. many times do I find myself waiting for something,
-writing something, reviewing something and getting an idea for something else, but the cost
-of switching is great/distracting. 
+Bit of an update, the vision is clear but the executionw as very underwhelming. 
+Ill continue to itterate with agents and find a sweetspot in terms of steering the models 
+in the direction I feel comfortalbe with. 
 
-Another scenario I envisioned was for research. Learning quite literally anything is a very
-desired activity for me, and being able to write thoughts as I research something or even 
-action the LLM while reading something else/looking at something else is very apealing to me.
+Also starting to believe all these md's supposedly for human consumption or even agent consumption
+are just useless? a lot to read for very little reward. 
 
-The vision was of a personal assistant for notes, but actually agentic. Both Voice models
-run locally, and with advancement in small parameter LLM's even the agentic portion which relies
-on opencode can be run locally on consumer hardware. I predict by July 2026 this will be capable.
+Pending tasks:
 
-The idea was so strong and well-defined, I decided to let codex implement it and see how far
-it can get with the ocational nudge/redirection/correction.
+- [ ] refactor code
+- make it more efficient
+- use effect in ts
+- clean up electron app
+- add physical chat optional
 
-I mean obsidian is literally a .md wrapper, and what do modern LLM harnesses rely on? 
-You guessed it,
-Markdown. 
+- [ ] redo configuration
+- it should be both more persistant and more deterministic
+- it should assume more during install but be configurable after
 
-once the app is in a usable state, I will be going back and writing/refactoring the code more manually.
+- [ ] redo electron window code specfically
+- the file where electron is written is a mess
+
+- [ ] implement tests for models / python script
+- find if we can wrap the models usage without python in ts or go or just something not python
+- be more clear of model usage.
+
 
 Below is the 5.3 codex description of the project, not written manually. 
 
